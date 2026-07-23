@@ -1,0 +1,49 @@
+name: artifact-symlink-canary
+on: workflow_dispatch
+permissions:
+  contents: read
+  actions: write
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Plant canary + workspace symlink
+        run: |
+          set -euo pipefail
+          CANARY="$RUNNER_TEMP/canary-secret.txt"
+          echo "CANARY_$(openssl rand -hex 8)" > "$CANARY"
+          echo "CANARY_PATH=$CANARY" >> "$GITHUB_ENV"
+          echo "CANARY_VAL=$(cat "$CANARY")" >> "$GITHUB_ENV"
+          mkdir -p out
+          ln -s "$CANARY" out/leak-via-symlink.txt
+          echo "benign" > out/normal.txt
+          ls -la out
+          readlink -f out/leak-via-symlink.txt || true
+          echo "PLANTED_CANARY=$(cat "$CANARY")"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symlink-canary
+          path: out
+
+  verify:
+    needs: upload
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: symlink-canary
+          path: downloaded
+      - name: Assert symlink target content was uploaded
+        run: |
+          set -euo pipefail
+          echo "Downloaded tree:"
+          find downloaded -print
+          echo "---- contents ----"
+          find downloaded -type f -exec sh -c 'echo "== $1 =="; cat "$1"; echo' _ {} \;
+          if grep -R "CANARY_" downloaded; then
+            echo "RESULT=SYMLINK_FOLLOW_CONFIRMED"
+          else
+            echo "RESULT=BLOCKED_OR_LINK_ONLY"
+            ls -la downloaded out downloaded/* 2>/dev/null || true
+          fi
