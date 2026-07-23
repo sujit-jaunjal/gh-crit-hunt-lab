@@ -1,0 +1,45 @@
+name: cache-cross-repo
+on: workflow_dispatch
+permissions:
+  contents: read
+  actions: write
+jobs:
+  save-on-lab:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "LAB_CACHE_SECRET_$(openssl rand -hex 8)" > lab.txt
+      - uses: actions/cache/save@v4
+        with:
+          path: lab.txt
+          key: cross-repo-secret-key-v1
+  steal-from-other-job-same-repo:
+    needs: save-on-lab
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@v4
+        id: r
+        with:
+          path: lab.txt
+          key: cross-repo-secret-key-v1
+      - run: |
+          echo "cache-hit=${{ steps.r.outputs.cache-hit }}"
+          cat lab.txt || echo missing
+  # Attempt: use cache API against private repo with this token
+  probe-private-cache-api:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # List caches on PRIVATE repo
+          code=$(curl -sS -o /tmp/c.json -w "%{http_code}" \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/sujit-jaunjal/app-authz-private/actions/caches")
+          echo "private caches HTTP $code"
+          head -c 300 /tmp/c.json; echo
+          code2=$(curl -sS -o /tmp/c2.json -w "%{http_code}" \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/sujit-jaunjal/app-authz-public/actions/caches")
+          echo "public sibling caches HTTP $code2"
+          head -c 300 /tmp/c2.json; echo
